@@ -1,54 +1,94 @@
-﻿using ConsoleApp31.Data;
-using ConsoleApp31.Models;
-using Microsoft.EntityFrameworkCore;
+﻿//using System;
+//using Microsoft.EntityFrameworkCore;
 
-class Program
-{
-    static void Main()
-    {
-        using var context = new BlogContext();
+//namespace StudentApp
+//{
+//    // Model sınıfı
+//    public class Student
+//    {
+//        public int Id { get; set; }
+//        public string Name { get; set; }
+//    }
 
-        // Yazar ekle 
-        var author = new Author
-        {
-            Name = "Ahmet Yılmaz",
-            Email = "ahmet@email.com"
-        };
-        context.Authors.Add(author);
+//    // DbContext sınıfı
+//    public class AppDbContext : DbContext
+//    {
+//        public DbSet<Student> Students { get; set; }
 
-        // Makale ekle 
-        var article = new Article
-        {
-            Title = "EF Core Kullanımı",
-            Content = "Entity Framework Core ile veritabanı işlemleri...",
-            Author = author
-        };
-        context.Articles.Add(article);
+//        // Veritabanı bağlantısı (örnek olarak SQLite kullanıldı)
+//        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+//        {
+//            optionsBuilder.UseSqlite("Data Source=students.db");
+//        }
+//    }
 
-        // Yorum ekle 
-        var comment = new Comment
-        {
-            Text = "Harika bir yazı!",
-            CommenterName = "Ziyaretçi",
-            Article = article
-        };
-        context.Comments.Add(comment);
+//    // Uygulama girişi
+//    class Program
+//    {
+//        static void Main(string[] args)
+//        {
+//            using (var context = new AppDbContext())
+//            {
+//                // Eğer veritabanı yoksa oluştur
+//                context.Database.EnsureCreated();
 
-        context.SaveChanges();
-        Console.WriteLine("Blog verileri eklendi!");
+//                // Yeni öğrenci nesnesi oluştur
+//                var student = new Student
+//                {
+//                    Name = "Ahmet Yılmaz"
+//                };
 
-        // Verileri oku 
-        var articles = context.Article
-            .Include(a => a.Author)
-            .Include(a => a.Comments)
-            .ToList();
+//                // Öğrenciyi DbSet'e ekle
+//                context.Students.Add(student);
 
-        foreach (var art in articles)
-        {
-            Console.WriteLine($"Başlık: {art.Title}");
-            Console.WriteLine($"Yazar: {art.Author.Name}");
-            Console.WriteLine($"Yorum Sayısı: {art.Comments.Count}");
-            Console.WriteLine("---");
-        }
-    }
-}
+//                // Değişiklikleri veritabanına kaydet
+//                context.SaveChanges();
+
+//                Console.WriteLine("Yeni öğrenci başarıyla eklendi!");
+//            }
+//        }
+//    }
+//}
+
+
+
+
+//using System;
+
+//SaveChanges() metodunun görevi:
+
+//SaveChanges() metodu, Entity Framework (EF) tarafından veritabanına yapılan değişiklikleri kalıcı hale getirmek için kullanılır.
+
+//🔍 Detaylı açıklama:
+
+//EF Core’da, sen Add(), Update(), Remove() gibi işlemler yaptığında, bu değişiklikler önce bellekte (context içinde) tutulur.
+//Yani EF, senin yaptığın değişiklikleri hemen veritabanına göndermez; sadece hangi nesnelerin eklendiğini, güncellendiğini veya silindiğini izler (change tracking).
+
+//İşte tam bu noktada:
+//👉 SaveChanges() çağrıldığında EF, bellekteki bu değişiklikleri SQL komutlarına dönüştürür (örneğin INSERT, UPDATE, DELETE)
+//ve bu komutları veritabanında uygular.
+
+//🔧 Kısaca özetlersek:
+//Aşama Ne olur?
+//Add()	Yeni nesne bellekte "Added" durumuna alınır
+//Update()	Nesne "Modified" durumuna alınır
+//Remove()	Nesne "Deleted" durumuna alınır
+//SaveChanges()	EF tüm bu değişiklikleri SQL komutlarına çevirip veritabanına gönderir
+//🧠 Neden kullanılır?
+
+//Çünkü EF, veritabanı ile doğrudan çalışmaz, bir ara katman (context) üzerinden değişiklikleri izler.
+
+//SaveChanges() çağrılmadığı sürece, yapılan işlemler sadece uygulama belleğinde kalır; veritabanına yansımaz.
+
+//📘 Örnek:
+//using (var context = new AppDbContext())
+//{
+//    var student = new Student { Name = "Ayşe Demir" };
+//    context.Students.Add(student); // EF bellekte "Added" olarak işaretler
+//    context.SaveChanges(); // Bu anda veritabanına INSERT sorgusu gönderilir
+//}
+
+
+//🔹 Eğer SaveChanges() yazmazsan, bu kayıt veritabanına eklenmez — sadece programın RAM’inde var olur.
+
+
