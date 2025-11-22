@@ -1,94 +1,160 @@
-﻿//using System;
-//using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection.Emit;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
-//namespace StudentApp
-//{
-//    // Model sınıfı
-//    public class Student
-//    {
-//        public int Id { get; set; }
-//        public string Name { get; set; }
-//    }
+// Uygulamanın başlangıç noktası
+public class Program
+{
+    public static void Main(string[] args)
+    {
+        var builder = WebApplication.CreateBuilder(args);
 
-//    // DbContext sınıfı
-//    public class AppDbContext : DbContext
-//    {
-//        public DbSet<Student> Students { get; set; }
+        // API kontrolcülerini ekleme
+        builder.Services.AddControllers();
 
-//        // Veritabanı bağlantısı (örnek olarak SQLite kullanıldı)
-//        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-//        {
-//            optionsBuilder.UseSqlite("Data Source=students.db");
-//        }
-//    }
+        // Veritabanı bağlamını (DbContext) servislere ekleme
+        // Bağlantı dizesini appsettings.json dosyasından okur
+        var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+        builder.Services.AddDbContext<MobilyaDbContext>(options =>
+            options.UseSqlServer(connectionString));
 
-//    // Uygulama girişi
-//    class Program
-//    {
-//        static void Main(string[] args)
-//        {
-//            using (var context = new AppDbContext())
-//            {
-//                // Eğer veritabanı yoksa oluştur
-//                context.Database.EnsureCreated();
+        var app = builder.Build();
 
-//                // Yeni öğrenci nesnesi oluştur
-//                var student = new Student
-//                {
-//                    Name = "Ahmet Yılmaz"
-//                };
+        // HTTP istek hattını yapılandırma
+        if (app.Environment.IsDevelopment())
+        {
+            app.UseDeveloperExceptionPage();
+        }
 
-//                // Öğrenciyi DbSet'e ekle
-//                context.Students.Add(student);
+        app.UseHttpsRedirection();
+        app.UseRouting();
+        app.UseAuthorization();
+        app.MapControllers();
 
-//                // Değişiklikleri veritabanına kaydet
-//                context.SaveChanges();
+        app.Run();
+    }
+}
 
-//                Console.WriteLine("Yeni öğrenci başarıyla eklendi!");
-//            }
-//        }
-//    }
-//}
+// Veritabanı için Entity Framework Core bağlam sınıfı
+public class MobilyaDbContext : DbContext
+{
+    public MobilyaDbContext(DbContextOptions<MobilyaDbContext> options)
+        : base(options)
+    {
+    }
 
+    public DbSet<Siparis> Siparisler { get; set; }
+    public DbSet<SiparisKalemi> SiparisKalemleri { get; set; }
 
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        // İlişkileri tanımlama
+        modelBuilder.Entity<Siparis>()
+            .HasMany(s => s.SiparisKalemleri)
+            .WithOne(sk => sk.Siparis)
+            .HasForeignKey(sk => sk.SiparisId);
+    }
+}
 
+// Veritabanı modeli: Sipariş
+public class Siparis
+{
+    public int SiparisId { get; set; }
+    public int MusteriId { get; set; }
+    public DateTime SiparisTarihi { get; set; }
+    public ICollection<SiparisKalemi> SiparisKalemleri { get; set; }
+}
 
-//using System;
+// Veritabanı modeli: Sipariş Kalemi
+public class SiparisKalemi
+{
+    public int SiparisKalemId { get; set; }
+    public int SiparisId { get; set; }
+    public string ModulId { get; set; }
+    public string RenkKodu { get; set; }
+    public int Adet { get; set; }
+    public Siparis Siparis { get; set; }
+}
 
-//SaveChanges() metodunun görevi:
+// API'den veri almak için kullanılan DTO (Veri Transfer Nesnesi)
+public class SiparisDto
+{
+    public int MusteriId { get; set; }
+    public List<TasarimBilgisiDto> TasarimBilgileri { get; set; }
+}
 
-//SaveChanges() metodu, Entity Framework (EF) tarafından veritabanına yapılan değişiklikleri kalıcı hale getirmek için kullanılır.
+// Tasarım bilgilerini içeren DTO
+public class TasarimBilgisiDto
+{
+    public string ModulId { get; set; }
+    public string RenkKodu { get; set; }
+    public int Adet { get; set; }
+}
 
-//🔍 Detaylı açıklama:
+// API'yi yönetecek kontrolcü sınıfı
+[ApiController]
+[Route("api/[controller]")]
+public class SiparisController : ControllerBase
+{
+    private readonly MobilyaDbContext _context;
 
-//EF Core’da, sen Add(), Update(), Remove() gibi işlemler yaptığında, bu değişiklikler önce bellekte (context içinde) tutulur.
-//Yani EF, senin yaptığın değişiklikleri hemen veritabanına göndermez; sadece hangi nesnelerin eklendiğini, güncellendiğini veya silindiğini izler (change tracking).
+    public SiparisController(MobilyaDbContext context)
+    {
+        _context = context;
+    }
 
-//İşte tam bu noktada:
-//👉 SaveChanges() çağrıldığında EF, bellekteki bu değişiklikleri SQL komutlarına dönüştürür (örneğin INSERT, UPDATE, DELETE)
-//ve bu komutları veritabanında uygular.
+    // Yeni bir sipariş oluşturmak için POST metodu
+    [HttpPost("olustur")]
+    public async Task<IActionResult> SiparisOlustur([FromBody] SiparisDto siparisDto)
+    {
+        if (siparisDto == null)
+        {
+            return BadRequest("Geçersiz sipariş verisi.");
+        }
 
-//🔧 Kısaca özetlersek:
-//Aşama Ne olur?
-//Add()	Yeni nesne bellekte "Added" durumuna alınır
-//Update()	Nesne "Modified" durumuna alınır
-//Remove()	Nesne "Deleted" durumuna alınır
-//SaveChanges()	EF tüm bu değişiklikleri SQL komutlarına çevirip veritabanına gönderir
-//🧠 Neden kullanılır?
+        try
+        {
+            var yeniSiparis = new Siparis
+            {
+                MusteriId = siparisDto.MusteriId,
+                SiparisTarihi = DateTime.Now,
+                SiparisKalemleri = siparisDto.TasarimBilgileri.Select(x => new SiparisKalemi
+                {
+                    ModulId = x.ModulId,
+                    RenkKodu = x.RenkKodu,
+                    Adet = x.Adet
+                }).ToList()
+            };
 
-//Çünkü EF, veritabanı ile doğrudan çalışmaz, bir ara katman (context) üzerinden değişiklikleri izler.
+            _context.Siparisler.Add(yeniSiparis);
+            await _context.SaveChangesAsync();
 
-//SaveChanges() çağrılmadığı sürece, yapılan işlemler sadece uygulama belleğinde kalır; veritabanına yansımaz.
+            return Ok(new { mesaj = "Sipariş başarıyla oluşturuldu.", siparisId = yeniSiparis.SiparisId });
+        }
+        catch (Exception ex)
+        {
+            // Hata yakalama ve loglama
+            return StatusCode(500, $"Bir hata oluştu: {ex.Message}");
+        }
+    }
 
-//📘 Örnek:
-//using (var context = new AppDbContext())
-//{
-//    var student = new Student { Name = "Ayşe Demir" };
-//    context.Students.Add(student); // EF bellekte "Added" olarak işaretler
-//    context.SaveChanges(); // Bu anda veritabanına INSERT sorgusu gönderilir
-//}
-
-
-//🔹 Eğer SaveChanges() yazmazsan, bu kayıt veritabanına eklenmez — sadece programın RAM’inde var olur.
-
+    // Test amaçlı GET metodu
+    [HttpGet]
+    public string Get()
+    {
+        return "Siparis API çalışıyor!";
+    }
+}
 
