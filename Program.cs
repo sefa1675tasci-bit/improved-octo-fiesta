@@ -1,160 +1,122 @@
-﻿using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Newtonsoft.Json;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection.Emit;
-using System.Runtime.InteropServices;
-using System.Threading.Tasks;
 
-// Uygulamanın başlangıç noktası
+public class SensorState
+{
+    // Kalman filter
+    public double Estimate { get; set; }
+    public double ErrorCovariance { get; set; } = 1;
+    public double ProcessNoise { get; set; } = 0.01;
+    public double MeasurementNoise { get; set; } = 0.5;
+
+    // Öğrenme penceresi
+    public List<double> Window { get; set; } = new();
+}
+
+public class UltraAdvancedAnomalyEngine
+{
+    private readonly Dictionary<string, SensorState> sensors = new();
+    private readonly int windowSize;
+
+    public event Action<string, double, double> OnAnomaly;
+
+    public UltraAdvancedAnomalyEngine(int windowSize = 40)
+    {
+        this.windowSize = windowSize;
+    }
+
+    private double KalmanUpdate(SensorState s, double measurement)
+    {
+        // Prediction
+        double predictedEstimate = s.Estimate;
+        double predictedCov = s.ErrorCovariance + s.ProcessNoise;
+
+        // Update
+        double kalmanGain = predictedCov / (predictedCov + s.MeasurementNoise);
+        double updatedEstimate = predictedEstimate + kalmanGain * (measurement - predictedEstimate);
+        double updatedCov = (1 - kalmanGain) * predictedCov;
+
+        s.Estimate = updatedEstimate;
+        s.ErrorCovariance = updatedCov;
+
+        return Math.Abs(measurement - updatedEstimate);
+    }
+
+    private double TrendDivergence(List<double> w)
+    {
+        double trend = 0;
+        for (int i = 1; i < w.Count; i++)
+        {
+            trend += (w[i] - w[i - 1]);
+        }
+        return Math.Abs(trend / w.Count);
+    }
+
+    private double BehaviorPatternScore(List<double> w)
+    {
+        double variance = w.Select(x => Math.Pow(x - w.Average(), 2)).Average();
+        return Math.Min(variance * 2, 50);
+    }
+
+    public void Process(string sensor, double value)
+    {
+        if (!sensors.ContainsKey(sensor))
+            sensors[sensor] = new SensorState();
+
+        var s = sensors[sensor];
+
+        if (s.Estimate == 0)
+            s.Estimate = value;
+
+        double kalmanErr = KalmanUpdate(s, value);
+
+        s.Window.Add(value);
+        if (s.Window.Count > windowSize)
+            s.Window.RemoveAt(0);
+
+        if (s.Window.Count < windowSize)
+            return;
+
+        double trendScore = TrendDivergence(s.Window) * 10;
+        double behaviorScore = BehaviorPatternScore(s.Window);
+
+        // Total anomaly score calculation
+        double totalScore = Math.Min(kalmanErr * 10 + trendScore + behaviorScore, 100);
+
+        if (totalScore > 70)
+            OnAnomaly?.Invoke(sensor, value, totalScore);
+    }
+}
+
 public class Program
 {
-    public static void Main(string[] args)
+    public static void Main()
     {
-        var builder = WebApplication.CreateBuilder(args);
+        var engine = new UltraAdvancedAnomalyEngine();
 
-        // API kontrolcülerini ekleme
-        builder.Services.AddControllers();
-
-        // Veritabanı bağlamını (DbContext) servislere ekleme
-        // Bağlantı dizesini appsettings.json dosyasından okur
-        var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-        builder.Services.AddDbContext<MobilyaDbContext>(options =>
-            options.UseSqlServer(connectionString));
-
-        var app = builder.Build();
-
-        // HTTP istek hattını yapılandırma
-        if (app.Environment.IsDevelopment())
+        engine.OnAnomaly += (sensor, val, score) =>
         {
-            app.UseDeveloperExceptionPage();
-        }
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"🚨 Ultra Anomali [{sensor}] Değer={val:F2} | Skor={score:F1}");
+            Console.ResetColor();
+        };
 
-        app.UseHttpsRedirection();
-        app.UseRouting();
-        app.UseAuthorization();
-        app.MapControllers();
+        Random rnd = new Random();
 
-        app.Run();
-    }
-}
-
-// Veritabanı için Entity Framework Core bağlam sınıfı
-public class MobilyaDbContext : DbContext
-{
-    public MobilyaDbContext(DbContextOptions<MobilyaDbContext> options)
-        : base(options)
-    {
-    }
-
-    public DbSet<Siparis> Siparisler { get; set; }
-    public DbSet<SiparisKalemi> SiparisKalemleri { get; set; }
-
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        // İlişkileri tanımlama
-        modelBuilder.Entity<Siparis>()
-            .HasMany(s => s.SiparisKalemleri)
-            .WithOne(sk => sk.Siparis)
-            .HasForeignKey(sk => sk.SiparisId);
-    }
-}
-
-// Veritabanı modeli: Sipariş
-public class Siparis
-{
-    public int SiparisId { get; set; }
-    public int MusteriId { get; set; }
-    public DateTime SiparisTarihi { get; set; }
-    public ICollection<SiparisKalemi> SiparisKalemleri { get; set; }
-}
-
-// Veritabanı modeli: Sipariş Kalemi
-public class SiparisKalemi
-{
-    public int SiparisKalemId { get; set; }
-    public int SiparisId { get; set; }
-    public string ModulId { get; set; }
-    public string RenkKodu { get; set; }
-    public int Adet { get; set; }
-    public Siparis Siparis { get; set; }
-}
-
-// API'den veri almak için kullanılan DTO (Veri Transfer Nesnesi)
-public class SiparisDto
-{
-    public int MusteriId { get; set; }
-    public List<TasarimBilgisiDto> TasarimBilgileri { get; set; }
-}
-
-// Tasarım bilgilerini içeren DTO
-public class TasarimBilgisiDto
-{
-    public string ModulId { get; set; }
-    public string RenkKodu { get; set; }
-    public int Adet { get; set; }
-}
-
-// API'yi yönetecek kontrolcü sınıfı
-[ApiController]
-[Route("api/[controller]")]
-public class SiparisController : ControllerBase
-{
-    private readonly MobilyaDbContext _context;
-
-    public SiparisController(MobilyaDbContext context)
-    {
-        _context = context;
-    }
-
-    // Yeni bir sipariş oluşturmak için POST metodu
-    [HttpPost("olustur")]
-    public async Task<IActionResult> SiparisOlustur([FromBody] SiparisDto siparisDto)
-    {
-        if (siparisDto == null)
+        for (int i = 0; i < 150; i++)
         {
-            return BadRequest("Geçersiz sipariş verisi.");
-        }
+            double s1 = rnd.NextDouble() * 10;
+            double s2 = rnd.NextDouble() * 20;
 
-        try
-        {
-            var yeniSiparis = new Siparis
-            {
-                MusteriId = siparisDto.MusteriId,
-                SiparisTarihi = DateTime.Now,
-                SiparisKalemleri = siparisDto.TasarimBilgileri.Select(x => new SiparisKalemi
-                {
-                    ModulId = x.ModulId,
-                    RenkKodu = x.RenkKodu,
-                    Adet = x.Adet
-                }).ToList()
-            };
+            if (i == 60) s1 = 90;     // büyük sıçrama
+            if (i == 110) s2 = -30;   // ters yönde çöküş
+            if (i > 120) s2 += 0.3 * (i - 120); // davranış değişikliği (yavaş drift)
 
-            _context.Siparisler.Add(yeniSiparis);
-            await _context.SaveChangesAsync();
+            engine.Process("Sicaklik", s1);
+            engine.Process("Basinc", s2);
 
-            return Ok(new { mesaj = "Sipariş başarıyla oluşturuldu.", siparisId = yeniSiparis.SiparisId });
-        }
-        catch (Exception ex)
-        {
-            // Hata yakalama ve loglama
-            return StatusCode(500, $"Bir hata oluştu: {ex.Message}");
+            Console.WriteLine($"📡 Sıcaklık={s1:F2} Basınç={s2:F2}");
         }
     }
-
-    // Test amaçlı GET metodu
-    [HttpGet]
-    public string Get()
-    {
-        return "Siparis API çalışıyor!";
-    }
 }
-
